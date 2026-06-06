@@ -1,0 +1,511 @@
+// prisma/schema.prisma
+// Markland Hotel & Spa — Production Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────
+
+enum UserRole {
+  GUEST
+  STAFF
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORISED
+  CAPTURED
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CARD
+  BANK_TRANSFER
+  CASH
+  VOUCHER
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+  CLEANING
+  OUT_OF_ORDER
+}
+
+enum RoomTier {
+  DELUXE
+  SUPERIOR
+  JUNIOR_SUITE
+  SUITE
+  GRAND_SUITE
+  PRESIDENTIAL
+}
+
+enum AmenityCategory {
+  ROOM
+  BATHROOM
+  TECHNOLOGY
+  DINING
+  WELLNESS
+  SERVICE
+}
+
+enum ServiceCategory {
+  SPA
+  DINING
+  ACTIVITY
+  TRANSPORT
+  CONCIERGE
+  OTHER
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMED
+  BOOKING_REMINDER
+  CHECK_IN_READY
+  PAYMENT_RECEIVED
+  REVIEW_REQUEST
+  PROMOTIONAL
+  SYSTEM
+}
+
+// ─── Core Models ──────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  firstName     String?
+  lastName      String?
+  phone         String?
+  avatar        String?
+  passwordHash  String?
+  role          UserRole  @default(GUEST)
+
+  // Profile
+  nationality   String?
+  dateOfBirth   DateTime?
+  passportNumber String?
+  preferences   Json?     // dietary, pillow, temperature, etc.
+
+  // Loyalty program
+  loyaltyPoints   Int      @default(0)
+  loyaltyTier     String   @default("CLASSIC") // CLASSIC | SILVER | GOLD | PLATINUM
+
+  // Relations
+  bookings        Booking[]
+  reviews         Review[]
+  notifications   Notification[]
+  sessions        Session[]
+  accounts        Account[]
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// ─── Room Models ──────────────────────────────────────────────────────
+
+model RoomCategory {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  tier        RoomTier
+  description String   @db.Text
+  shortDesc   String?
+
+  // Capacity
+  maxOccupancy Int
+  maxAdults    Int
+  maxChildren  Int
+
+  // Dimensions
+  sizeM2    Float?
+  floorMin  Int?
+  floorMax  Int?
+
+  // Pricing (base rates)
+  baseRateWeekday Float
+  baseRateWeekend Float
+  extraAdultRate  Float  @default(0)
+  extraChildRate  Float  @default(0)
+
+  // Policies
+  cancellationHours Int @default(48) // free cancellation window
+
+  // Media
+  heroImage    String?
+  galleryImages String[] // array of URLs
+  videoUrl     String?
+
+  // SEO / display
+  sortOrder   Int     @default(0)
+  featured    Boolean @default(false)
+  published   Boolean @default(true)
+
+  // Relations
+  rooms       Room[]
+  amenities   RoomCategoryAmenity[]
+  bookingItems BookingItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tier])
+  @@index([published])
+  @@map("room_categories")
+}
+
+model Room {
+  id           String     @id @default(cuid())
+  number       String     @unique
+  floor        Int
+  categoryId   String
+  status       RoomStatus @default(AVAILABLE)
+
+  // Current occupant (when OCCUPIED)
+  currentBookingId String?
+
+  // Notes for housekeeping
+  notes String? @db.Text
+
+  // Relations
+  category     RoomCategory @relation(fields: [categoryId], references: [id])
+  bookingItems BookingItem[]
+  maintenanceLogs MaintenanceLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([status])
+  @@index([floor])
+  @@map("rooms")
+}
+
+model Amenity {
+  id       String          @id @default(cuid())
+  slug     String          @unique
+  name     String
+  icon     String?         // lucide icon name or custom SVG key
+  category AmenityCategory
+
+  roomCategories RoomCategoryAmenity[]
+
+  @@map("amenities")
+}
+
+model RoomCategoryAmenity {
+  categoryId String
+  amenityId  String
+  highlight  Boolean @default(false) // show in summary card
+
+  category RoomCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  amenity  Amenity      @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+
+  @@id([categoryId, amenityId])
+  @@map("room_category_amenities")
+}
+
+// ─── Booking Models ───────────────────────────────────────────────────
+
+model Booking {
+  id            String        @id @default(cuid())
+  reference     String        @unique // e.g. MH-2024-00042
+  userId        String?       // null = guest booking
+  status        BookingStatus @default(PENDING)
+
+  // Guest info (duplicated for guest checkouts)
+  guestFirstName String
+  guestLastName  String
+  guestEmail     String
+  guestPhone     String?
+
+  // Dates
+  checkIn  DateTime
+  checkOut DateTime
+  nights   Int
+
+  // Party
+  adults   Int @default(1)
+  children Int @default(0)
+  infants  Int @default(0)
+
+  // Pricing summary
+  subtotal     Float
+  taxAmount    Float
+  totalAmount  Float
+  currency     String @default("EUR")
+
+  // Special requests
+  specialRequests String? @db.Text
+  arrivalTime     String? // e.g. "14:00"
+
+  // Source
+  bookingSource String @default("DIRECT") // DIRECT | OTA | PHONE | WALK_IN
+
+  // Internal notes
+  staffNotes String? @db.Text
+
+  // Timestamps
+  confirmedAt  DateTime?
+  checkedInAt  DateTime?
+  checkedOutAt DateTime?
+  cancelledAt  DateTime?
+
+  // Relations
+  user         User?         @relation(fields: [userId], references: [id])
+  items        BookingItem[]
+  payments     Payment[]
+  addons       BookingAddon[]
+  review       Review?
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([checkIn])
+  @@index([checkOut])
+  @@index([reference])
+  @@index([guestEmail])
+  @@map("bookings")
+}
+
+model BookingItem {
+  id           String @id @default(cuid())
+  bookingId    String
+  roomId       String?
+  categoryId   String
+
+  // Snapshot pricing (frozen at booking time)
+  ratePerNight Float
+  totalRate    Float
+  currency     String @default("EUR")
+
+  // Relations
+  booking  Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  room     Room?        @relation(fields: [roomId], references: [id])
+  category RoomCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([bookingId])
+  @@index([roomId])
+  @@map("booking_items")
+}
+
+model BookingAddon {
+  id        String @id @default(cuid())
+  bookingId String
+  serviceId String
+  quantity  Int    @default(1)
+  unitPrice Float
+  total     Float
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id])
+
+  @@index([bookingId])
+  @@map("booking_addons")
+}
+
+// ─── Payment ──────────────────────────────────────────────────────────
+
+model Payment {
+  id            String        @id @default(cuid())
+  bookingId     String
+  status        PaymentStatus @default(PENDING)
+  method        PaymentMethod
+  amount        Float
+  currency      String        @default("EUR")
+
+  // Stripe
+  stripePaymentIntentId String? @unique
+  stripeChargeId        String?
+  stripeRefundId        String?
+
+  // Receipt
+  receiptUrl String?
+
+  // Timestamps
+  authorisedAt DateTime?
+  capturedAt   DateTime?
+  refundedAt   DateTime?
+  failedAt     DateTime?
+
+  // Relations
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([status])
+  @@map("payments")
+}
+
+// ─── Services & Packages ──────────────────────────────────────────────
+
+model Service {
+  id          String          @id @default(cuid())
+  slug        String          @unique
+  name        String
+  description String          @db.Text
+  category    ServiceCategory
+  price       Float
+  duration    Int?            // minutes
+  image       String?
+  published   Boolean         @default(true)
+  sortOrder   Int             @default(0)
+
+  bookingAddons BookingAddon[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("services")
+}
+
+// ─── Seasonal Pricing ─────────────────────────────────────────────────
+
+model RatePeriod {
+  id         String @id @default(cuid())
+  name       String
+  startDate  DateTime
+  endDate    DateTime
+  multiplier Float  @default(1.0) // e.g. 1.5 = 50% surcharge
+  minStay    Int    @default(1)
+
+  @@index([startDate])
+  @@index([endDate])
+  @@map("rate_periods")
+}
+
+// ─── Reviews ─────────────────────────────────────────────────────────
+
+model Review {
+  id        String @id @default(cuid())
+  bookingId String @unique
+  userId    String
+  rating    Int    // 1–5
+  title     String?
+  body      String? @db.Text
+
+  // Sub-ratings
+  ratingCleanliness  Int?
+  ratingComfort      Int?
+  ratingLocation     Int?
+  ratingService      Int?
+  ratingValue        Int?
+
+  published  Boolean @default(false)
+  staffReply String? @db.Text
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([published])
+  @@map("reviews")
+}
+
+// ─── Notifications ────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  bookingId String?
+  type      NotificationType
+  title     String
+  body      String           @db.Text
+  read      Boolean          @default(false)
+  readAt    DateTime?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [bookingId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([read])
+  @@map("notifications")
+}
+
+// ─── Maintenance ──────────────────────────────────────────────────────
+
+model MaintenanceLog {
+  id          String    @id @default(cuid())
+  roomId      String
+  description String    @db.Text
+  reportedBy  String
+  resolvedAt  DateTime?
+  notes       String?   @db.Text
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("maintenance_logs")
+}
