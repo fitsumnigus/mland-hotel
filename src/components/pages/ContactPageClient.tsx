@@ -13,6 +13,25 @@ const DEPARTMENTS = [
   { label: "Events & Weddings", email: "events@marklandhotel.com",   phone: "+353 1 234 5680" },
   { label: "Press & Media",  email: "press@marklandhotel.com",        phone: "+353 1 234 5681" },
 ];
+ 
+const Field = ({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) => {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">
+        {label} {required && "*"}
+      </label>
+      {children}
+    </div>
+  );
+}; 
 
 const ENQUIRY_TYPES = [
   "Room Reservation",
@@ -132,6 +151,7 @@ export function ContactPageClient() {
                     <select
                       value={form.enquiry}
                       onChange={(e) => setField("enquiry", e.target.value)}
+                      aria-label="Nature of Enquiry"
                       className="contact-input cursor-pointer [&>option]:bg-obsidian-900 [&>option]:text-ivory-200"
                     >
                       <option value="">Select…</option>

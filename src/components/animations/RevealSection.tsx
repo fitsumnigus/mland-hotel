@@ -93,17 +93,15 @@ export function StaggerContainer({
 
 // Individual stagger child
 export const StaggerItem = motion.div;
-StaggerItem.defaultProps = {
-  variants: {
-    hidden:  { opacity: 0, y: 24 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] },
-    },
+
+export const staggerItemVariants = {
+  hidden: { opacity: 0, y: 24 },
+  visible: {
+    opacity: 1,
+    y: 0,
   },
 };
-
+<StaggerItem variants={staggerItemVariants} />
 // Parallax wrapper
 interface ParallaxProps {
   children: React.ReactNode;
