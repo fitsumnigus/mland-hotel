@@ -341,7 +341,10 @@ async function main() {
         currency:       "EUR",
         bookingSource:  "DIRECT",
         confirmedAt:    s.status !== BookingStatus.PENDING ? new Date() : null,
-        checkedInAt:    [BookingStatus.CHECKED_IN, BookingStatus.CHECKED_OUT].includes(s.status) ? checkIn : null,
+        checkedInAt:
+  s.status === BookingStatus.CHECKED_IN || s.status === BookingStatus.CHECKED_OUT
+    ? checkIn
+    : null,
         checkedOutAt:   s.status === BookingStatus.CHECKED_OUT ? checkOut : null,
         items: {
           create: {
